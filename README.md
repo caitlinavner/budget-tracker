@@ -3,7 +3,7 @@ Progressive Web App (PWA)
 
 A budget tracking app with on and offline capabilities. Entries are saved and displayed even when app is restarted. 
 
-Referenced previous class activities.
+Referenced previous class activities and service-workers.js from HW 20.
 
 Add functionality to our existing Budget Tracker application to allow for offline access and functionality.
 
