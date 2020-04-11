@@ -1,114 +1,85 @@
-//referenced service-workers.js from react profile in HW 20
-const isLocalhost = Boolean(
-  window.location.hostname === "localhost" ||
-    window.location.hostname === "[::1]" ||
-    window.location.hostname.match(
-      /^127(?:\.(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)){3}$/
-    )
-);
-
-export function register(config) {
-  if (process.env.NODE_ENV === "production" && "serviceWorker" in navigator) {
-    const publicUrl = new URL(process.env.PUBLIC_URL, window.location.href);
-    if (publicUrl.origin !== window.location.origin) {
-      return;
-    }
-
-    window.addEventListener("load", () => {
-      const swUrl = `${process.env.PUBLIC_URL}/service-worker.js`;
-
-      if (isLocalhost) {
-        checkValidServiceWorker(swUrl, config);
-        navigator.serviceWorker.ready.then(() => {
-          console.log(
-            "This web app is being served cache-first by a service " +
-              "worker. To learn more, visit https://bit.ly/CRA-PWA"
-          );
-        });
-      } else {
-        registerValidSW(swUrl, config);
-      }
-    });
+const FILES_TO_CACHE = [
+    '/',
+  '/styles.css',
+  '/index.js'
+];
+​
+const STATIC_CACHE = "static-cache-v1";
+const RUNTIME_CACHE = "runtime-cache";
+​
+self.addEventListener("install", event => {
+  event.waitUntil(
+    caches
+      .open(STATIC_CACHE)
+      .then(cache => cache.addAll(FILES_TO_CACHE))
+      .then(() => self.skipWaiting())
+  );
+});
+​
+// The activate handler takes care of cleaning up old caches.
+self.addEventListener("activate", event => {
+  const currentCaches = [STATIC_CACHE, RUNTIME_CACHE];
+  event.waitUntil(
+    caches
+      .keys()
+      .then(cacheNames => {
+        // return array of cache names that are old to delete
+        return cacheNames.filter(
+          cacheName => !currentCaches.includes(cacheName)
+        );
+      })
+      .then(cachesToDelete => {
+        return Promise.all(
+          cachesToDelete.map(cacheToDelete => {
+            return caches.delete(cacheToDelete);
+          })
+        );
+      })
+      .then(() => self.clients.claim())
+  );
+});
+​
+self.addEventListener("fetch", event => {
+  // non GET requests are not cached and requests to other origins are not cached
+  if (
+    event.request.method !== "GET" ||
+    !event.request.url.startsWith(self.location.origin)
+  ) {
+    event.respondWith(fetch(event.request));
+    return;
   }
-}
-
-function registerValidSW(swUrl, config) {
-  navigator.serviceWorker
-    .register(swUrl)
-    .then(registration => {
-      registration.onupdatefound = () => {
-        const installingWorker = registration.installing;
-        if (installingWorker == null) {
-          return;
-        }
-        installingWorker.onstatechange = () => {
-          if (installingWorker.state === "installed") {
-            if (navigator.serviceWorker.controller) {
-              console.log(
-                "New content is available and will be used when all " +
-                  "tabs for this page are closed. See https://bit.ly/CRA-PWA."
-              );
-
-              // Execute callback
-              if (config && config.onUpdate) {
-                config.onUpdate(registration);
-              }
-            } else {
-              // Everything has been precached.
-              console.log("Content is cached for offline use.");
-
-              // Execute callback
-              if (config && config.onSuccess) {
-                config.onSuccess(registration);
-              }
-            }
-          }
-        };
-      };
-    })
-    .catch(error => {
-      console.error("Error during service worker registration:", error);
-    });
-}
-
-function checkValidServiceWorker(swUrl, config) {
-  // Check if the service worker can be found. If it can't reload the page.
-  fetch(swUrl, {
-    headers: { "Service-Worker": "script" }
-  })
-    .then(response => {
-      // Ensure service worker exists, and that we really are getting a JS file.
-      const contentType = response.headers.get("content-type");
-      if (
-        response.status === 404 ||
-        (contentType != null && contentType.indexOf("javascript") === -1)
-      ) {
-        // No service worker found. Probably a different app. Reload the page.
-        navigator.serviceWorker.ready.then(registration => {
-          registration.unregister().then(() => {
-            window.location.reload();
+​
+  // handle runtime GET requests for data from /api routes
+  if (event.request.url.includes("/api/images")) {
+    // make network request and fallback to cache if network request fails (offline)
+    event.respondWith(
+      caches.open(RUNTIME_CACHE).then(cache => {
+        return fetch(event.request)
+          .then(response => {
+            cache.put(event.request, response.clone());
+            return response;
+          })
+          .catch(() => caches.match(event.request));
+      })
+    );
+    return;
+  }
+​
+  // use cache first for all other requests for performance
+  event.respondWith(
+    caches.match(event.request).then(cachedResponse => {
+      if (cachedResponse) {
+        return cachedResponse;
+      }
+​
+      // request is not in cache. make network request and cache the response
+      return caches.open(RUNTIME_CACHE).then(cache => {
+        return fetch(event.request).then(response => {
+          return cache.put(event.request, response.clone()).then(() => {
+            return response;
           });
         });
-      } else {
-        // Service worker found. Proceed as normal.
-        registerValidSW(swUrl, config);
-      }
-    })
-    .catch(() => {
-      console.log(
-        "No internet connection found. App is running in offline mode."
-      );
-    });
-}
-
-export function unregister() {
-  if ("serviceWorker" in navigator) {
-    navigator.serviceWorker.ready
-      .then(registration => {
-        registration.unregister();
-      })
-      .catch(error => {
-        console.error(error.message);
       });
-  }
-}
+    })
+  );
+});
